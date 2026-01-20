@@ -1,10 +1,10 @@
 // -----------------------------
 // CONFIGURATION
 // -----------------------------
-const SIZE = 300;      // canvas size
-const GRID = 3;        // 3x3 grid
+const SIZE = 300;
+const GRID = 3; // 3x3 grid
 const TILE = SIZE / GRID;
-const SCRAMBLE_STEPS = 7; // how many moves to scramble
+const SCRAMBLE_STEPS = 7; // number of rotations to scramble
 
 // -----------------------------
 // HTML ELEMENTS
@@ -21,36 +21,19 @@ let tiles = [];
 let moves = 0;
 
 // -----------------------------
-// HELPER FUNCTIONS
+// DRAW ENGLISH FLAG
 // -----------------------------
+function drawFlag() {
+  // white background
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, SIZE, SIZE);
 
-// Deterministic pseudo-random number generator
-function mulberry32(a) {
-  return function() {
-    var t = a += 0x6D2B79F5;
-    t = Math.imul(t ^ t >>> 15, t | 1);
-    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  }
-}
+  // vertical red cross
+  ctx.fillStyle = "red";
+  ctx.fillRect(SIZE/2 - SIZE/15, 0, SIZE/7.5, SIZE);
 
-// Generate daily seed
-const today = new Date().toISOString().slice(0,10);
-let seed = 0;
-for (let i = 0; i < today.length; i++) seed += today.charCodeAt(i);
-const random = mulberry32(seed);
-
-// Generate procedural target image
-function drawTarget() {
-  for (let i = 0; i < 20; i++) {
-    ctx.fillStyle = `hsl(${Math.floor(random()*360)}, 70%, 60%)`;
-    ctx.fillRect(
-      Math.floor(random() * SIZE),
-      Math.floor(random() * SIZE),
-      60,
-      60
-    );
-  }
+  // horizontal red cross
+  ctx.fillRect(0, SIZE/2 - SIZE/15, SIZE, SIZE/7.5);
 }
 
 // -----------------------------
@@ -61,42 +44,33 @@ function initTiles() {
   for (let y=0; y<GRID; y++) {
     for (let x=0; x<GRID; x++) {
       tiles.push({
-        x, y,             // current position
-        correctX: x,      // correct position
+        x, y,
+        correctX: x,
         correctY: y,
-        rotation: 0       // rotation in degrees (0,90,180,270)
+        rotation: 0
       });
     }
   }
 }
 
-// Scramble tiles with rotations and slides
+// Scramble tiles (only rotation for now)
 function scramble(steps = SCRAMBLE_STEPS) {
   for (let i=0; i<steps; i++) {
-    const t = tiles[Math.floor(random() * tiles.length)];
-    if (random() > 0.5) {
-      // rotate
-      t.rotation = (t.rotation + 90) % 360;
-    } else {
-      // slide (random direction)
-      const dir = random() > 0.5 ? 1 : -1;
-      t.x = Math.max(0, Math.min(GRID-1, t.x + dir));
-    }
+    const t = tiles[Math.floor(Math.random() * tiles.length)];
+    t.rotation = (t.rotation + 90) % 360;
   }
 }
 
-// Draw interactive board
+// Draw board with tiles
 function drawBoard() {
   bctx.clearRect(0,0,SIZE,SIZE);
 
   tiles.forEach(tile => {
     bctx.save();
 
-    // Source slice from target
     const sx = tile.correctX * TILE;
     const sy = tile.correctY * TILE;
 
-    // Destination
     const dx = tile.x * TILE;
     const dy = tile.y * TILE;
 
@@ -138,7 +112,7 @@ board.addEventListener("click", e => {
 // WIN DETECTION
 // -----------------------------
 function isSolved() {
-  return tiles.every(t => 
+  return tiles.every(t =>
     t.x === t.correctX &&
     t.y === t.correctY &&
     t.rotation === 0
@@ -148,7 +122,7 @@ function isSolved() {
 // -----------------------------
 // INITIALIZE GAME
 // -----------------------------
-drawTarget();
+drawFlag();
 initTiles();
 scramble();
 drawBoard();
