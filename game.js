@@ -2,9 +2,9 @@
 // CONFIG
 // -----------------------------
 const SIZE = 300;
-const GRID = 3; // 3x3
+const GRID = 3;
 const TILE = SIZE / GRID;
-const SCRAMBLE_STEPS = 20; // number of slides/rotations to scramble
+const SCRAMBLE_STEPS = 20;
 
 // -----------------------------
 // HTML ELEMENTS
@@ -40,18 +40,19 @@ function initTiles() {
   tiles = [];
   for (let y = 0; y < GRID; y++) {
     for (let x = 0; x < GRID; x++) {
-      // Last tile is empty
-      if (x === GRID-1 && y === GRID-1) {
-        tiles.push({ x, y, correctX: x, correctY: y, rotation: 0, empty: true });
-      } else {
-        tiles.push({ x, y, correctX: x, correctY: y, rotation: 0, empty: false });
-      }
+      tiles.push({
+        x, y,
+        correctX: x,
+        correctY: y,
+        rotation: 0,
+        empty: (x === GRID-1 && y === GRID-1)
+      });
     }
   }
 }
 
 // -----------------------------
-// SCRAMBLE (slides + rotations)
+// SCRAMBLE
 // -----------------------------
 function scramble(steps = SCRAMBLE_STEPS) {
   for (let i = 0; i < steps; i++) {
@@ -59,11 +60,8 @@ function scramble(steps = SCRAMBLE_STEPS) {
     if (movable.length === 0) continue;
     const t = movable[Math.floor(Math.random() * movable.length)];
 
-    if (Math.random() < 0.5) {
-      slideTile(t);
-    } else {
-      t.rotation = (t.rotation + 90) % 360;
-    }
+    if (Math.random() < 0.5) slideTile(t);
+    else t.rotation = (t.rotation + 90) % 360;
   }
 }
 
@@ -74,7 +72,7 @@ function drawBoard() {
   bctx.clearRect(0, 0, SIZE, SIZE);
 
   tiles.forEach(tile => {
-    if (tile.empty) return; // skip empty tile
+    if (tile.empty) return;
 
     const sx = tile.correctX * TILE;
     const sy = tile.correctY * TILE;
@@ -103,7 +101,7 @@ function canSlide(tile) {
   const empty = tiles.find(t => t.empty);
   const dx = Math.abs(tile.x - empty.x);
   const dy = Math.abs(tile.y - empty.y);
-  return dx + dy === 1; // adjacent
+  return dx + dy === 1;
 }
 
 function slideTile(tile) {
@@ -123,7 +121,7 @@ function slideTile(tile) {
 }
 
 // -----------------------------
-// USER INTERACTION
+// ROTATE ON TAP / CLICK
 // -----------------------------
 board.addEventListener("click", e => {
   if (gameOver) return;
@@ -134,32 +132,92 @@ board.addEventListener("click", e => {
   const tile = tiles.find(t => t.x === x && t.y === y && !t.empty);
   if (!tile) return;
 
-  // If tile is adjacent to empty, slide it
-  if (canSlide(tile)) {
-    slideTile(tile);
-    moves++;
-  } else {
-    // Otherwise rotate
-    tile.rotation = (tile.rotation + 90) % 360;
-    moves++;
-  }
-
+  tile.rotation = (tile.rotation + 90) % 360;
+  moves++;
   movesCounter.textContent = moves;
+
   drawBoard();
 
-  if (isSolved()) {
-    gameOver = true;
-    setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 50);
+  if (isSolved()) endGame();
+});
+
+// -----------------------------
+// SLIDE ON ARROW KEYS (Desktop)
+// -----------------------------
+document.addEventListener("keydown", e => {
+  if (gameOver) return;
+
+  let moved = false;
+  switch (e.key) {
+    case "ArrowUp": moved = trySlide("up"); break;
+    case "ArrowDown": moved = trySlide("down"); break;
+    case "ArrowLeft": moved = trySlide("left"); break;
+    case "ArrowRight": moved = trySlide("right"); break;
+  }
+  if (moved) {
+    moves++;
+    movesCounter.textContent = moves;
+    drawBoard();
+    if (isSolved()) endGame();
   }
 });
+
+// -----------------------------
+// SLIDE ON SWIPE (Mobile)
+// -----------------------------
+let touchStart = null;
+
+board.addEventListener("touchstart", e => {
+  if (gameOver) return;
+  const touch = e.touches[0];
+  touchStart = { x: touch.clientX, y: touch.clientY };
+});
+
+board.addEventListener("touchend", e => {
+  if (gameOver || !touchStart) return;
+  const touch = e.changedTouches[0];
+  const dx = touch.clientX - touchStart.x;
+  const dy = touch.clientY - touchStart.y;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    if (dx > 30) trySlide("right");
+    else if (dx < -30) trySlide("left");
+  } else {
+    if (dy > 30) trySlide("down");
+    else if (dy < -30) trySlide("up");
+  }
+
+  touchStart = null;
+});
+
+function trySlide(dir) {
+  const empty = tiles.find(t => t.empty);
+  let targetTile;
+  switch(dir) {
+    case "up": targetTile = tiles.find(t => t.x === empty.x && t.y === empty.y + 1 && !t.empty); break;
+    case "down": targetTile = tiles.find(t => t.x === empty.x && t.y === empty.y - 1 && !t.empty); break;
+    case "left": targetTile = tiles.find(t => t.x === empty.x + 1 && t.y === empty.y && !t.empty); break;
+    case "right": targetTile = tiles.find(t => t.x === empty.x - 1 && t.y === empty.y && !t.empty); break;
+  }
+  if (targetTile) {
+    slideTile(targetTile);
+    return true;
+  }
+  return false;
+}
 
 // -----------------------------
 // WIN CHECK
 // -----------------------------
 function isSolved() {
-  return tiles.every(t => 
+  return tiles.every(t =>
     t.empty ? (t.x === GRID-1 && t.y === GRID-1) : (t.x === t.correctX && t.y === t.correctY && t.rotation === 0)
   );
+}
+
+function endGame() {
+  gameOver = true;
+  setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 50);
 }
 
 // -----------------------------
