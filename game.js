@@ -19,6 +19,7 @@ const movesCounter = document.getElementById("moves");
 
 let tiles = [];
 let moves = 0;
+let gameOver = false; // NEW: track if game is solved
 
 // -----------------------------
 // DRAW ENGLISH FLAG
@@ -91,6 +92,8 @@ function drawBoard() {
 // USER INTERACTION
 // -----------------------------
 board.addEventListener("click", e => {
+  if (gameOver) return; // NEW: prevent extra clicks after solved
+
   const x = Math.floor(e.offsetX / TILE);
   const y = Math.floor(e.offsetY / TILE);
 
@@ -103,8 +106,10 @@ board.addEventListener("click", e => {
 
   drawBoard();
 
+  // NEW: check for win immediately after each move
   if (isSolved()) {
-    setTimeout(() => alert(`Congrats! You solved it in ${moves} moves!`), 100);
+    gameOver = true;
+    setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 50);
   }
 });
 
