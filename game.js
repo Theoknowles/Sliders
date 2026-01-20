@@ -1,10 +1,10 @@
 // -----------------------------
-// CONFIGURATION
+// CONFIG
 // -----------------------------
 const SIZE = 300;
-const GRID = 3; // 3x3 grid
+const GRID = 3; // 3x3
 const TILE = SIZE / GRID;
-const SCRAMBLE_STEPS = 7; // number of rotations to scramble
+const SCRAMBLE_STEPS = 20; // number of slides/rotations to scramble
 
 // -----------------------------
 // HTML ELEMENTS
@@ -19,21 +19,17 @@ const movesCounter = document.getElementById("moves");
 
 let tiles = [];
 let moves = 0;
-let gameOver = false; // NEW: track if game is solved
+let gameOver = false;
 
 // -----------------------------
 // DRAW ENGLISH FLAG
 // -----------------------------
 function drawFlag() {
-  // white background
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, SIZE, SIZE);
 
-  // vertical red cross
   ctx.fillStyle = "red";
   ctx.fillRect(SIZE/2 - SIZE/15, 0, SIZE/7.5, SIZE);
-
-  // horizontal red cross
   ctx.fillRect(0, SIZE/2 - SIZE/15, SIZE, SIZE/7.5);
 }
 
@@ -42,32 +38,43 @@ function drawFlag() {
 // -----------------------------
 function initTiles() {
   tiles = [];
-  for (let y=0; y<GRID; y++) {
-    for (let x=0; x<GRID; x++) {
-      tiles.push({
-        x, y,
-        correctX: x,
-        correctY: y,
-        rotation: 0
-      });
+  for (let y = 0; y < GRID; y++) {
+    for (let x = 0; x < GRID; x++) {
+      // Last tile is empty
+      if (x === GRID-1 && y === GRID-1) {
+        tiles.push({ x, y, correctX: x, correctY: y, rotation: 0, empty: true });
+      } else {
+        tiles.push({ x, y, correctX: x, correctY: y, rotation: 0, empty: false });
+      }
     }
   }
 }
 
-// Scramble tiles (only rotation for now)
+// -----------------------------
+// SCRAMBLE (slides + rotations)
+// -----------------------------
 function scramble(steps = SCRAMBLE_STEPS) {
-  for (let i=0; i<steps; i++) {
-    const t = tiles[Math.floor(Math.random() * tiles.length)];
-    t.rotation = (t.rotation + 90) % 360;
+  for (let i = 0; i < steps; i++) {
+    const movable = tiles.filter(t => canSlide(t));
+    if (movable.length === 0) continue;
+    const t = movable[Math.floor(Math.random() * movable.length)];
+
+    if (Math.random() < 0.5) {
+      slideTile(t);
+    } else {
+      t.rotation = (t.rotation + 90) % 360;
+    }
   }
 }
 
-// Draw board with tiles
+// -----------------------------
+// DRAW BOARD
+// -----------------------------
 function drawBoard() {
-  bctx.clearRect(0,0,SIZE,SIZE);
+  bctx.clearRect(0, 0, SIZE, SIZE);
 
   tiles.forEach(tile => {
-    bctx.save();
+    if (tile.empty) return; // skip empty tile
 
     const sx = tile.correctX * TILE;
     const sy = tile.correctY * TILE;
@@ -75,6 +82,7 @@ function drawBoard() {
     const dx = tile.x * TILE;
     const dy = tile.y * TILE;
 
+    bctx.save();
     bctx.translate(dx + TILE/2, dy + TILE/2);
     bctx.rotate(tile.rotation * Math.PI / 180);
 
@@ -89,24 +97,56 @@ function drawBoard() {
 }
 
 // -----------------------------
+// HELPER FUNCTIONS
+// -----------------------------
+function canSlide(tile) {
+  const empty = tiles.find(t => t.empty);
+  const dx = Math.abs(tile.x - empty.x);
+  const dy = Math.abs(tile.y - empty.y);
+  return dx + dy === 1; // adjacent
+}
+
+function slideTile(tile) {
+  const empty = tiles.find(t => t.empty);
+  if (!canSlide(tile)) return false;
+
+  const tempX = tile.x;
+  const tempY = tile.y;
+
+  tile.x = empty.x;
+  tile.y = empty.y;
+
+  empty.x = tempX;
+  empty.y = tempY;
+
+  return true;
+}
+
+// -----------------------------
 // USER INTERACTION
 // -----------------------------
 board.addEventListener("click", e => {
-  if (gameOver) return; // NEW: prevent extra clicks after solved
+  if (gameOver) return;
 
   const x = Math.floor(e.offsetX / TILE);
   const y = Math.floor(e.offsetY / TILE);
 
-  const tile = tiles.find(t => t.x === x && t.y === y);
+  const tile = tiles.find(t => t.x === x && t.y === y && !t.empty);
   if (!tile) return;
 
-  tile.rotation = (tile.rotation + 90) % 360;
-  moves++;
-  movesCounter.textContent = moves;
+  // If tile is adjacent to empty, slide it
+  if (canSlide(tile)) {
+    slideTile(tile);
+    moves++;
+  } else {
+    // Otherwise rotate
+    tile.rotation = (tile.rotation + 90) % 360;
+    moves++;
+  }
 
+  movesCounter.textContent = moves;
   drawBoard();
 
-  // NEW: check for win immediately after each move
   if (isSolved()) {
     gameOver = true;
     setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 50);
@@ -114,13 +154,11 @@ board.addEventListener("click", e => {
 });
 
 // -----------------------------
-// WIN DETECTION
+// WIN CHECK
 // -----------------------------
 function isSolved() {
-  return tiles.every(t =>
-    t.x === t.correctX &&
-    t.y === t.correctY &&
-    t.rotation === 0
+  return tiles.every(t => 
+    t.empty ? (t.x === GRID-1 && t.y === GRID-1) : (t.x === t.correctX && t.y === t.correctY && t.rotation === 0)
   );
 }
 
