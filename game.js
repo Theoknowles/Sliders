@@ -10,10 +10,48 @@ const TWIST_ROTATION_INTERVAL = 5; // Rotate board every 5 moves in twist mode
 // Empty slot inside the 3x3 square (starting position)
 const emptySlot = { row: 2, col: 2 };
 
-// Left offset for puzzle on the right side
-const PUZZLE_OFFSET_X = 160; // leave 160px on left for reference image
+// Get today's date for puzzle seeding
+function getTodaysSeed() {
+  const now = new Date();
+  return now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+}
+
+// Seeded random number generator
+class SeededRandom {
+  constructor(seed) {
+    this.seed = seed;
+  }
+  
+  next() {
+    this.seed = (this.seed * 9301 + 49297) % 233280;
+    return this.seed / 233280;
+  }
+}
+
+let random = new SeededRandom(getTodaysSeed());
+
+// Generate daily colors based on seed
+function generateDailyColors(){
+  const colors = [];
+  const baseHues = [];
+  
+  // Generate 8 random hues for today's puzzle
+  for(let i = 0; i < 8; i++){
+    baseHues.push(Math.floor(random.next() * 360));
+  }
+  
+  // Convert hues to colors
+  baseHues.forEach(hue => {
+    colors.push(`hsl(${hue}, 70%, 50%)`);
+  });
+  
+  return colors;
+}
+
+const dailyColors = generateDailyColors();
 
 let moves = 0;
+let optimalMoves = 0;
 let gameOver = false;
 let tiles = [];
 let gameMode = null; // "classic" or "twist"
@@ -33,12 +71,13 @@ const gameModeDesc = document.getElementById("gameModeDesc");
 const targetCanvas = document.getElementById("target");
 const tctx = targetCanvas.getContext("2d");
 
+const referenceCanvas = document.getElementById("referenceCanvas");
+const rctx = referenceCanvas.getContext("2d");
+
 const board = document.getElementById("board");
 const ctx = board.getContext("2d");
 
 const movesCounter = document.getElementById("moves");
-const debugDisplay = document.getElementById("debug");
-const checkWinBtn = document.getElementById("checkWinBtn");
 
 // Menu button handlers
 classicBtn.addEventListener("click", () => startGame("classic"));
@@ -50,55 +89,43 @@ backBtn.addEventListener("click", () => {
   gameScreen.style.display = "none";
 });
 
-checkWinBtn.addEventListener("click", () => {
-  checkWin();
-  updateDebugDisplay();
-});
-
 function updateDebugDisplay(){
-  const tileInfo = tiles.map(t => `T${t.id}(${t.row},${t.col})R${t.rotation}`).join(" | ");
-  debugDisplay.textContent = `Tiles: ${tileInfo} | GameOver: ${gameOver} | Board Rotation: ${boardRotation}°`;
+  // Debug display removed
 }
 
 // -----------------------------
-// DRAW TARGET IMAGE (Snake pattern)
+// DRAW TARGET IMAGE (for tile rendering)
 function drawFlag(){
   const SIZE = targetCanvas.width;
   const tileSize = SIZE / 3;
   
   // Define the snake path through the tiles: 0->1->2->5->4->3->6->7 (skipping 8 which is empty)
   const snakePath = [
-    { row: 0, col: 0, color: "#FF6B6B" },   // red
-    { row: 0, col: 1, color: "#FF9500" },   // orange
-    { row: 0, col: 2, color: "#FFD700" },   // gold
-    { row: 1, col: 2, color: "#4CAF50" },   // green
-    { row: 1, col: 1, color: "#00BCD4" },   // cyan
-    { row: 1, col: 0, color: "#2196F3" },   // blue
-    { row: 2, col: 0, color: "#9C27B0" },   // purple
-    { row: 2, col: 1, color: "#E91E63" }    // pink
+    { row: 0, col: 0 },   // tile 1
+    { row: 0, col: 1 },   // tile 2
+    { row: 0, col: 2 },   // tile 3
+    { row: 1, col: 2 },   // tile 4
+    { row: 1, col: 1 },   // tile 5
+    { row: 1, col: 0 },   // tile 6
+    { row: 2, col: 0 },   // tile 7
+    { row: 2, col: 1 }    // tile 8
     // Empty slot at [2,2] - no tile
   ];
   
-  // Fill each tile with solid color
-  snakePath.forEach(tile => {
+  // Fill each tile with daily color and add number
+  snakePath.forEach((tile, index) => {
     const x = tile.col * tileSize;
     const y = tile.row * tileSize;
-    tctx.fillStyle = tile.color;
+    tctx.fillStyle = dailyColors[index];
     tctx.fillRect(x, y, tileSize, tileSize);
     
-    // Draw a number to show order
+    // Draw a number to show order and rotation
     tctx.fillStyle = "white";
     tctx.font = "bold 30px Arial";
     tctx.textAlign = "center";
     tctx.textBaseline = "middle";
-    tctx.fillText(snakePath.indexOf(tile) + 1, x + tileSize/2, y + tileSize/2);
+    tctx.fillText(index + 1, x + tileSize/2, y + tileSize/2);
   });
-  
-  // Draw white square for the empty slot position
-  const emptyX = emptySlot.col * tileSize;
-  const emptyY = emptySlot.row * tileSize;
-  tctx.fillStyle = "white";
-  tctx.fillRect(emptyX, emptyY, tileSize, tileSize);
 }
 
 // -----------------------------
@@ -130,10 +157,157 @@ function scramble(steps=SCRAMBLE_STEPS){
   for(let i=0;i<steps;i++){
     const movable = tiles.filter(canSlide);
     if(movable.length===0) continue;
-    const t = movable[Math.floor(Math.random()*movable.length)];
-    if(Math.random()<0.5) slideTile(t);
+    const t = movable[Math.floor(random.next()*movable.length)];
+    if(random.next()<0.5) slideTile(t);
     else t.rotation = (t.rotation + 90) % 360;
   }
+  
+  // Calculate optimal moves: count tiles that are out of place or have wrong rotation
+  optimalMoves = 0;
+  tiles.forEach(tile => {
+    if(tile.row !== tile.correctRow || tile.col !== tile.correctCol){
+      optimalMoves++; // Need to slide this tile
+    }
+    if(tile.rotation !== 0){
+      optimalMoves++; // Need to rotate this tile
+    }
+  });
+  
+  // Calculate actual optimal using BFS
+  optimalMoves = calculateOptimalMoves();
+}
+
+// Calculate optimal moves using A* with Manhattan distance heuristic
+function calculateOptimalMoves(){
+  // Create a state string from puzzle state
+  function stateToString(tls, empty) {
+    return tls.map(t => `${t.id}:${t.row},${t.col},${t.rotation}`).join("|");
+  }
+  
+  // Calculate Manhattan distance heuristic
+  function heuristic(tls) {
+    let distance = 0;
+    tls.forEach(t => {
+      distance += Math.abs(t.row - t.correctRow) + Math.abs(t.col - t.correctCol);
+      distance += (t.rotation !== 0 ? 1 : 0); // Add cost for rotation
+    });
+    return distance;
+  }
+  
+  // Create goal state string
+  function getGoalStateString() {
+    const goalTiles = [];
+    for(let id=0; id<8; id++){
+      const tile = tiles.find(t => t.id === id);
+      goalTiles.push(`${tile.id}:${tile.correctRow},${tile.correctCol},0`);
+    }
+    return goalTiles.join("|");
+  }
+  
+  const goalState = getGoalStateString();
+  const currentState = stateToString(tiles, emptySlot);
+  
+  if(currentState === goalState) return 0;
+  
+  // A* - priority queue ordered by f = g + h
+  const openSet = []; // {state, tiles, empty, g (moves), h (heuristic), f (total)}
+  const initialState = {
+    state: currentState,
+    tiles: JSON.parse(JSON.stringify(tiles)),
+    empty: {...emptySlot},
+    g: 0,
+    h: heuristic(tiles),
+    f: heuristic(tiles)
+  };
+  openSet.push(initialState);
+  
+  const visited = new Set();
+  
+  let iterations = 0;
+  const MAX_ITERATIONS = 50000;
+  
+  while(openSet.length > 0 && iterations < MAX_ITERATIONS){
+    iterations++;
+    
+    // Find node with lowest f score
+    let currentIdx = 0;
+    for(let i = 1; i < openSet.length; i++){
+      if(openSet[i].f < openSet[currentIdx].f){
+        currentIdx = i;
+      }
+    }
+    
+    const current = openSet.splice(currentIdx, 1)[0];
+    
+    if(current.state === goalState) return current.g;
+    
+    if(visited.has(current.state)) continue;
+    visited.add(current.state);
+    
+    const currentTiles = current.tiles;
+    const currentEmpty = current.empty;
+    
+    // Try sliding adjacent tiles
+    const directions = [{row: -1, col: 0}, {row: 1, col: 0}, {row: 0, col: -1}, {row: 0, col: 1}];
+    
+    for(let dir of directions){
+      const newRow = currentEmpty.row + dir.row;
+      const newCol = currentEmpty.col + dir.col;
+      
+      if(newRow >= 0 && newRow < ROWS && newCol >= 0 && newCol < COLS){
+        const tileIdx = currentTiles.findIndex(t => t.row === newRow && t.col === newCol);
+        if(tileIdx >= 0){
+          const newTiles = JSON.parse(JSON.stringify(currentTiles));
+          newTiles[tileIdx].row = currentEmpty.row;
+          newTiles[tileIdx].col = currentEmpty.col;
+          
+          const newEmpty = {row: newRow, col: newCol};
+          const newState = stateToString(newTiles, newEmpty);
+          
+          if(!visited.has(newState)){
+            const newG = current.g + 1;
+            const newH = heuristic(newTiles);
+            const newF = newG + newH;
+            
+            openSet.push({
+              state: newState,
+              tiles: newTiles,
+              empty: newEmpty,
+              g: newG,
+              h: newH,
+              f: newF
+            });
+          }
+        }
+      }
+    }
+    
+    // Try rotating tiles (only if it improves heuristic)
+    for(let i = 0; i < currentTiles.length; i++){
+      if(currentTiles[i].rotation !== 0){ // Only rotate if not already at 0
+        const newTiles = JSON.parse(JSON.stringify(currentTiles));
+        newTiles[i].rotation = (newTiles[i].rotation + 90) % 360;
+        const newState = stateToString(newTiles, currentEmpty);
+        
+        if(!visited.has(newState)){
+          const newG = current.g + 1;
+          const newH = heuristic(newTiles);
+          const newF = newG + newH;
+          
+          openSet.push({
+            state: newState,
+            tiles: newTiles,
+            empty: currentEmpty,
+            g: newG,
+            h: newH,
+            f: newF
+          });
+        }
+      }
+    }
+  }
+  
+  return 30; // Fallback
 }
 
 // -----------------------------
@@ -141,25 +315,19 @@ function scramble(steps=SCRAMBLE_STEPS){
 function drawBoard(){
   ctx.clearRect(0,0,board.width,board.height);
 
-  // Draw reference image on left (scaled to 160x160)
-  ctx.drawImage(targetCanvas, 0, 0, 160, 160);
-  ctx.strokeStyle = "black";
-  ctx.lineWidth = 2;
-  ctx.strokeRect(0,0,160,160);
-
-  // Draw puzzle tiles on right
+  // Draw puzzle tiles
   tiles.forEach(tile=>{
     // Skip drawing the tile if it's at the empty slot position
     if(tile.row === emptySlot.row && tile.col === emptySlot.col) return;
 
-    const x = PUZZLE_OFFSET_X + tile.col*TILE_SIZE;
+    const x = tile.col*TILE_SIZE;
     const y = tile.row*TILE_SIZE;
 
     ctx.save();
     
     // Apply board rotation for twist mode
     if(gameMode === "twist" && boardRotation !== 0){
-      const centerX = PUZZLE_OFFSET_X + TILE_SIZE * 1.5;
+      const centerX = TILE_SIZE * 1.5;
       const centerY = TILE_SIZE * 1.5;
       ctx.translate(centerX, centerY);
       ctx.rotate(boardRotation * Math.PI / 180);
@@ -184,9 +352,52 @@ function drawBoard(){
   // Draw empty slot outline
   ctx.strokeStyle = "red";
   ctx.lineWidth = 2;
-  ctx.strokeRect(PUZZLE_OFFSET_X + emptySlot.col*TILE_SIZE, emptySlot.row*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+  ctx.strokeRect(emptySlot.col*TILE_SIZE, emptySlot.row*TILE_SIZE, TILE_SIZE, TILE_SIZE);
   
   updateDebugDisplay();
+}
+
+// DRAW REFERENCE IMAGE
+function drawReference(){
+  rctx.clearRect(0,0,referenceCanvas.width,referenceCanvas.height);
+  
+  // Draw the target image on the reference canvas
+  const SIZE = referenceCanvas.width;
+  const tileSize = SIZE / 3;
+  
+  // Define the snake path through the tiles: 0->1->2->5->4->3->6->7 (skipping 8 which is empty)
+  const snakePath = [
+    { row: 0, col: 0 },   // tile 1
+    { row: 0, col: 1 },   // tile 2
+    { row: 0, col: 2 },   // tile 3
+    { row: 1, col: 2 },   // tile 4
+    { row: 1, col: 1 },   // tile 5
+    { row: 1, col: 0 },   // tile 6
+    { row: 2, col: 0 },   // tile 7
+    { row: 2, col: 1 }    // tile 8
+    // Empty slot at [2,2] - no tile
+  ];
+  
+  // Fill each tile with daily color and add number
+  snakePath.forEach((tile, index) => {
+    const x = tile.col * tileSize;
+    const y = tile.row * tileSize;
+    rctx.fillStyle = dailyColors[index];
+    rctx.fillRect(x, y, tileSize, tileSize);
+    
+    // Draw a number to show order
+    rctx.fillStyle = "white";
+    rctx.font = "bold 30px Arial";
+    rctx.textAlign = "center";
+    rctx.textBaseline = "middle";
+    rctx.fillText(index + 1, x + tileSize/2, y + tileSize/2);
+  });
+  
+  // Draw white square for the empty slot position
+  const emptyX = emptySlot.col * tileSize;
+  const emptyY = emptySlot.row * tileSize;
+  rctx.fillStyle = "white";
+  rctx.fillRect(emptyX, emptyY, tileSize, tileSize);
 }
 
 // -----------------------------
@@ -220,7 +431,7 @@ board.addEventListener("click", e=>{
 
   // Account for board rotation in twist mode
   if(gameMode === "twist" && boardRotation !== 0){
-    const centerX = PUZZLE_OFFSET_X + TILE_SIZE * 1.5;
+    const centerX = TILE_SIZE * 1.5;
     const centerY = TILE_SIZE * 1.5;
     
     // Translate to center
@@ -240,7 +451,7 @@ board.addEventListener("click", e=>{
   }
 
   const tile = tiles.find(t=>!t.empty &&
-    x >= PUZZLE_OFFSET_X + t.col*TILE_SIZE && x < PUZZLE_OFFSET_X + t.col*TILE_SIZE + TILE_SIZE &&
+    x >= t.col*TILE_SIZE && x < t.col*TILE_SIZE + TILE_SIZE &&
     y >= t.row*TILE_SIZE && y < t.row*TILE_SIZE + TILE_SIZE
   );
   if(!tile) return;
@@ -284,6 +495,15 @@ document.addEventListener("keydown", e=>{
 });
 
 function trySlide(dir){
+  // In twist mode, adjust direction based on board rotation
+  if(gameMode === "twist" && boardRotation !== 0){
+    const rotations = Math.round(boardRotation / 90);
+    const directions = ["up", "right", "down", "left"];
+    const dirIndex = directions.indexOf(dir);
+    const adjustedIndex = (dirIndex - rotations + 4) % 4;
+    dir = directions[adjustedIndex];
+  }
+  
   let target;
   switch(dir){
     case "up": target = tiles.find(t=>t.row===emptySlot.row+1 && t.col===emptySlot.col); break;
@@ -308,9 +528,19 @@ board.addEventListener("touchstart", e=>{
 
 board.addEventListener("touchend", e=>{
   if(!touchStart || gameOver) return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - touchStart.x;
-  const dy = t.clientY - touchStart.y;
+  let dx = e.changedTouches[0].clientX - touchStart.x;
+  let dy = e.changedTouches[0].clientY - touchStart.y;
+
+  // Account for board rotation in twist mode
+  if(gameMode === "twist" && boardRotation !== 0){
+    const angle = -(boardRotation * Math.PI / 180);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const newDx = dx * cos - dy * sin;
+    const newDy = dx * sin + dy * cos;
+    dx = newDx;
+    dy = newDy;
+  }
 
   let moved = false;
   if(Math.abs(dx) > Math.abs(dy)){
@@ -345,7 +575,11 @@ function checkWin(){
   
   if(won){
     gameOver = true;
-    setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 100);
+    const difference = moves - optimalMoves;
+    const message = difference === 0 
+      ? `🎉 Perfect! You solved it in ${moves} moves (optimal)!`
+      : `🎉 Congrats! You solved it in ${moves} moves.\nOptimal: ${optimalMoves} moves\nYou used ${difference} extra moves.`;
+    setTimeout(() => alert(message), 100);
   }
 }
 
@@ -353,6 +587,7 @@ function checkWin(){
 // INITIALIZE GAME
 function initGame(){
   drawFlag();
+  drawReference();
   initTiles();
   scramble();
 
