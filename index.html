@@ -2,17 +2,34 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>One Move - Desktop & Mobile</title>
+  <title>One Move - Image Puzzle</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>One Move</h1>
-  <p>Click or tap to rotate. Slide with arrow keys (desktop) or swipe (mobile).</p>
+  <!-- MENU SCREEN -->
+  <div id="menuScreen" style="text-align: center; padding: 50px;">
+    <h1>One Move</h1>
+    <p>Choose a game mode:</p>
+    <button id="classicBtn" style="padding: 15px 30px; font-size: 18px; margin: 10px;">Classic</button>
+    <button id="twistBtn" style="padding: 15px 30px; font-size: 18px; margin: 10px;">Twist</button>
+  </div>
 
-  <canvas id="target" width="300" height="300"></canvas>
-  <canvas id="board" width="300" height="300"></canvas>
+  <!-- GAME SCREEN -->
+  <div id="gameScreen" style="display: none;">
+    <h1 id="gameTitle">One Move</h1>
+    <p id="gameModeDesc">Click/tap to rotate. Slide tiles into the empty slot (bottom-right).</p>
 
-  <p>Moves: <span id="moves">0</span></p>
+    <!-- Hidden canvas for generating target image -->
+    <canvas id="target" width="240" height="240" style="display:none;"></canvas>
+
+    <!-- Board canvas -->
+    <canvas id="board" width="400" height="240"></canvas>
+
+    <p>Moves: <span id="moves">0</span></p>
+    <p id="debug"></p>
+    <button id="checkWinBtn">Check Win</button>
+    <button id="backBtn">Back to Menu</button>
+  </div>
 
   <script src="game.js"></script>
 </body>

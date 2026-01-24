@@ -1,51 +1,124 @@
 // -----------------------------
 // CONFIG
 // -----------------------------
-const SIZE = 300;
-const GRID = 3;
-const TILE = SIZE / GRID;
-const SCRAMBLE_STEPS = 20;
+const TILE_SIZE = 80; // tile size
+const ROWS = 3;
+const COLS = 3;
+const SCRAMBLE_STEPS = 30;
+const TWIST_ROTATION_INTERVAL = 5; // Rotate board every 5 moves in twist mode
+
+// Empty slot inside the 3x3 square (starting position)
+const emptySlot = { row: 2, col: 2 };
+
+// Left offset for puzzle on the right side
+const PUZZLE_OFFSET_X = 160; // leave 160px on left for reference image
+
+let moves = 0;
+let gameOver = false;
+let tiles = [];
+let gameMode = null; // "classic" or "twist"
+let boardRotation = 0; // For twist mode: 0, 90, 180, 270
 
 // -----------------------------
 // HTML ELEMENTS
 // -----------------------------
-const target = document.getElementById("target");
-const ctx = target.getContext("2d");
+const menuScreen = document.getElementById("menuScreen");
+const gameScreen = document.getElementById("gameScreen");
+const classicBtn = document.getElementById("classicBtn");
+const twistBtn = document.getElementById("twistBtn");
+const backBtn = document.getElementById("backBtn");
+const gameTitle = document.getElementById("gameTitle");
+const gameModeDesc = document.getElementById("gameModeDesc");
+
+const targetCanvas = document.getElementById("target");
+const tctx = targetCanvas.getContext("2d");
 
 const board = document.getElementById("board");
-const bctx = board.getContext("2d");
+const ctx = board.getContext("2d");
 
 const movesCounter = document.getElementById("moves");
+const debugDisplay = document.getElementById("debug");
+const checkWinBtn = document.getElementById("checkWinBtn");
 
-let tiles = [];
-let moves = 0;
-let gameOver = false;
+// Menu button handlers
+classicBtn.addEventListener("click", () => startGame("classic"));
+twistBtn.addEventListener("click", () => startGame("twist"));
+backBtn.addEventListener("click", () => {
+  gameMode = null;
+  boardRotation = 0;
+  menuScreen.style.display = "block";
+  gameScreen.style.display = "none";
+});
 
-// -----------------------------
-// DRAW ENGLISH FLAG
-// -----------------------------
-function drawFlag() {
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, SIZE, SIZE);
+checkWinBtn.addEventListener("click", () => {
+  checkWin();
+  updateDebugDisplay();
+});
 
-  ctx.fillStyle = "red";
-  ctx.fillRect(SIZE/2 - SIZE/15, 0, SIZE/7.5, SIZE);
-  ctx.fillRect(0, SIZE/2 - SIZE/15, SIZE, SIZE/7.5);
+function updateDebugDisplay(){
+  const tileInfo = tiles.map(t => `T${t.id}(${t.row},${t.col})R${t.rotation}`).join(" | ");
+  debugDisplay.textContent = `Tiles: ${tileInfo} | GameOver: ${gameOver} | Board Rotation: ${boardRotation}°`;
 }
 
 // -----------------------------
-// TILE SYSTEM
+// DRAW TARGET IMAGE (Snake pattern)
+function drawFlag(){
+  const SIZE = targetCanvas.width;
+  const tileSize = SIZE / 3;
+  
+  // Define the snake path through the tiles: 0->1->2->5->4->3->6->7 (skipping 8 which is empty)
+  const snakePath = [
+    { row: 0, col: 0, color: "#FF6B6B" },   // red
+    { row: 0, col: 1, color: "#FF9500" },   // orange
+    { row: 0, col: 2, color: "#FFD700" },   // gold
+    { row: 1, col: 2, color: "#4CAF50" },   // green
+    { row: 1, col: 1, color: "#00BCD4" },   // cyan
+    { row: 1, col: 0, color: "#2196F3" },   // blue
+    { row: 2, col: 0, color: "#9C27B0" },   // purple
+    { row: 2, col: 1, color: "#E91E63" }    // pink
+    // Empty slot at [2,2] - no tile
+  ];
+  
+  // Fill each tile with solid color
+  snakePath.forEach(tile => {
+    const x = tile.col * tileSize;
+    const y = tile.row * tileSize;
+    tctx.fillStyle = tile.color;
+    tctx.fillRect(x, y, tileSize, tileSize);
+    
+    // Draw a number to show order
+    tctx.fillStyle = "white";
+    tctx.font = "bold 30px Arial";
+    tctx.textAlign = "center";
+    tctx.textBaseline = "middle";
+    tctx.fillText(snakePath.indexOf(tile) + 1, x + tileSize/2, y + tileSize/2);
+  });
+  
+  // Draw white square for the empty slot position
+  const emptyX = emptySlot.col * tileSize;
+  const emptyY = emptySlot.row * tileSize;
+  tctx.fillStyle = "white";
+  tctx.fillRect(emptyX, emptyY, tileSize, tileSize);
+}
+
 // -----------------------------
-function initTiles() {
+// INIT TILES
+function initTiles(){
   tiles = [];
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
+  let id = 0;
+  for(let row=0; row<ROWS; row++){
+    for(let col=0; col<COLS; col++){
+      // Skip the empty slot position
+      if(row === emptySlot.row && col === emptySlot.col) continue;
+      
       tiles.push({
-        x, y,
-        correctX: x,
-        correctY: y,
+        id: id++,
+        row,
+        col,
+        correctRow: row,
+        correctCol: col,
         rotation: 0,
-        empty: (x === GRID-1 && y === GRID-1)
+        empty: false
       });
     }
   }
@@ -53,177 +126,262 @@ function initTiles() {
 
 // -----------------------------
 // SCRAMBLE
-// -----------------------------
-function scramble(steps = SCRAMBLE_STEPS) {
-  for (let i = 0; i < steps; i++) {
-    const movable = tiles.filter(t => canSlide(t));
-    if (movable.length === 0) continue;
-    const t = movable[Math.floor(Math.random() * movable.length)];
-
-    if (Math.random() < 0.5) slideTile(t);
+function scramble(steps=SCRAMBLE_STEPS){
+  for(let i=0;i<steps;i++){
+    const movable = tiles.filter(canSlide);
+    if(movable.length===0) continue;
+    const t = movable[Math.floor(Math.random()*movable.length)];
+    if(Math.random()<0.5) slideTile(t);
     else t.rotation = (t.rotation + 90) % 360;
   }
 }
 
 // -----------------------------
-// DRAW BOARD
-// -----------------------------
-function drawBoard() {
-  bctx.clearRect(0, 0, SIZE, SIZE);
+// DRAW BOARD + REFERENCE
+function drawBoard(){
+  ctx.clearRect(0,0,board.width,board.height);
 
-  tiles.forEach(tile => {
-    if (tile.empty) return;
+  // Draw reference image on left (scaled to 160x160)
+  ctx.drawImage(targetCanvas, 0, 0, 160, 160);
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(0,0,160,160);
 
-    const sx = tile.correctX * TILE;
-    const sy = tile.correctY * TILE;
+  // Draw puzzle tiles on right
+  tiles.forEach(tile=>{
+    // Skip drawing the tile if it's at the empty slot position
+    if(tile.row === emptySlot.row && tile.col === emptySlot.col) return;
 
-    const dx = tile.x * TILE;
-    const dy = tile.y * TILE;
+    const x = PUZZLE_OFFSET_X + tile.col*TILE_SIZE;
+    const y = tile.row*TILE_SIZE;
 
-    bctx.save();
-    bctx.translate(dx + TILE/2, dy + TILE/2);
-    bctx.rotate(tile.rotation * Math.PI / 180);
+    ctx.save();
+    
+    // Apply board rotation for twist mode
+    if(gameMode === "twist" && boardRotation !== 0){
+      const centerX = PUZZLE_OFFSET_X + TILE_SIZE * 1.5;
+      const centerY = TILE_SIZE * 1.5;
+      ctx.translate(centerX, centerY);
+      ctx.rotate(boardRotation * Math.PI / 180);
+      ctx.translate(-centerX, -centerY);
+    }
+    
+    ctx.translate(x + TILE_SIZE/2, y + TILE_SIZE/2);
+    ctx.rotate(tile.rotation * Math.PI/180);
 
-    bctx.drawImage(
-      target,
-      sx, sy, TILE, TILE,
-      -TILE/2, -TILE/2, TILE, TILE
-    );
+    const sx = tile.correctCol*TILE_SIZE;
+    const sy = tile.correctRow*TILE_SIZE;
 
-    bctx.restore();
+    ctx.drawImage(targetCanvas, sx, sy, TILE_SIZE, TILE_SIZE, -TILE_SIZE/2, -TILE_SIZE/2, TILE_SIZE, TILE_SIZE);
+
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-TILE_SIZE/2, -TILE_SIZE/2, TILE_SIZE, TILE_SIZE);
+
+    ctx.restore();
   });
+
+  // Draw empty slot outline
+  ctx.strokeStyle = "red";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(PUZZLE_OFFSET_X + emptySlot.col*TILE_SIZE, emptySlot.row*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+  
+  updateDebugDisplay();
 }
 
 // -----------------------------
 // HELPER FUNCTIONS
-// -----------------------------
-function canSlide(tile) {
-  const empty = tiles.find(t => t.empty);
-  const dx = Math.abs(tile.x - empty.x);
-  const dy = Math.abs(tile.y - empty.y);
-  return dx + dy === 1;
+function canSlide(tile){
+  const rowDiff = Math.abs(tile.row - emptySlot.row);
+  const colDiff = Math.abs(tile.col - emptySlot.col);
+  return (rowDiff + colDiff) === 1;
 }
 
-function slideTile(tile) {
-  const empty = tiles.find(t => t.empty);
-  if (!canSlide(tile)) return false;
+function slideTile(tile){
+  if(!canSlide(tile)) return false;
+  const tempRow = tile.row;
+  const tempCol = tile.col;
 
-  const tempX = tile.x;
-  const tempY = tile.y;
+  tile.row = emptySlot.row;
+  tile.col = emptySlot.col;
 
-  tile.x = empty.x;
-  tile.y = empty.y;
-
-  empty.x = tempX;
-  empty.y = tempY;
-
+  emptySlot.row = tempRow;
+  emptySlot.col = tempCol;
   return true;
 }
 
 // -----------------------------
-// ROTATE ON TAP / CLICK
-// -----------------------------
-board.addEventListener("click", e => {
-  if (gameOver) return;
+// ROTATE ON CLICK / TAP
+board.addEventListener("click", e=>{
+  if(gameOver) return;
+  const rect = board.getBoundingClientRect();
+  let x = e.clientX - rect.left;
+  let y = e.clientY - rect.top;
 
-  const x = Math.floor(e.offsetX / TILE);
-  const y = Math.floor(e.offsetY / TILE);
+  // Account for board rotation in twist mode
+  if(gameMode === "twist" && boardRotation !== 0){
+    const centerX = PUZZLE_OFFSET_X + TILE_SIZE * 1.5;
+    const centerY = TILE_SIZE * 1.5;
+    
+    // Translate to center
+    x -= centerX;
+    y -= centerY;
+    
+    // Rotate back by the board rotation amount
+    const angle = -(boardRotation * Math.PI / 180);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const newX = x * cos - y * sin;
+    const newY = x * sin + y * cos;
+    
+    // Translate back
+    x = newX + centerX;
+    y = newY + centerY;
+  }
 
-  const tile = tiles.find(t => t.x === x && t.y === y && !t.empty);
-  if (!tile) return;
+  const tile = tiles.find(t=>!t.empty &&
+    x >= PUZZLE_OFFSET_X + t.col*TILE_SIZE && x < PUZZLE_OFFSET_X + t.col*TILE_SIZE + TILE_SIZE &&
+    y >= t.row*TILE_SIZE && y < t.row*TILE_SIZE + TILE_SIZE
+  );
+  if(!tile) return;
 
   tile.rotation = (tile.rotation + 90) % 360;
   moves++;
   movesCounter.textContent = moves;
-
+  
+  // In twist mode, rotate board every 5 moves
+  if(gameMode === "twist" && moves % TWIST_ROTATION_INTERVAL === 0){
+    boardRotation = (boardRotation + 90) % 360;
+  }
+  
   drawBoard();
-
-  if (isSolved()) endGame();
+  checkWin();
 });
 
 // -----------------------------
-// SLIDE ON ARROW KEYS (Desktop)
-// -----------------------------
-document.addEventListener("keydown", e => {
-  if (gameOver) return;
-
+// SLIDE ON ARROWS
+document.addEventListener("keydown", e=>{
+  if(gameOver) return;
   let moved = false;
-  switch (e.key) {
+  switch(e.key){
     case "ArrowUp": moved = trySlide("up"); break;
     case "ArrowDown": moved = trySlide("down"); break;
     case "ArrowLeft": moved = trySlide("left"); break;
     case "ArrowRight": moved = trySlide("right"); break;
   }
-  if (moved) {
+  if(moved){
     moves++;
     movesCounter.textContent = moves;
+    
+    // In twist mode, rotate board every 5 moves
+    if(gameMode === "twist" && moves % TWIST_ROTATION_INTERVAL === 0){
+      boardRotation = (boardRotation + 90) % 360;
+    }
+    
     drawBoard();
-    if (isSolved()) endGame();
+    checkWin();
   }
 });
 
-// -----------------------------
-// SLIDE ON SWIPE (Mobile)
-// -----------------------------
-let touchStart = null;
-
-board.addEventListener("touchstart", e => {
-  if (gameOver) return;
-  const touch = e.touches[0];
-  touchStart = { x: touch.clientX, y: touch.clientY };
-});
-
-board.addEventListener("touchend", e => {
-  if (gameOver || !touchStart) return;
-  const touch = e.changedTouches[0];
-  const dx = touch.clientX - touchStart.x;
-  const dy = touch.clientY - touchStart.y;
-
-  if (Math.abs(dx) > Math.abs(dy)) {
-    if (dx > 30) trySlide("right");
-    else if (dx < -30) trySlide("left");
-  } else {
-    if (dy > 30) trySlide("down");
-    else if (dy < -30) trySlide("up");
+function trySlide(dir){
+  let target;
+  switch(dir){
+    case "up": target = tiles.find(t=>t.row===emptySlot.row+1 && t.col===emptySlot.col); break;
+    case "down": target = tiles.find(t=>t.row===emptySlot.row-1 && t.col===emptySlot.col); break;
+    case "left": target = tiles.find(t=>t.row===emptySlot.row && t.col===emptySlot.col+1); break;
+    case "right": target = tiles.find(t=>t.row===emptySlot.row && t.col===emptySlot.col-1); break;
   }
-
-  touchStart = null;
-});
-
-function trySlide(dir) {
-  const empty = tiles.find(t => t.empty);
-  let targetTile;
-  switch(dir) {
-    case "up": targetTile = tiles.find(t => t.x === empty.x && t.y === empty.y + 1 && !t.empty); break;
-    case "down": targetTile = tiles.find(t => t.x === empty.x && t.y === empty.y - 1 && !t.empty); break;
-    case "left": targetTile = tiles.find(t => t.x === empty.x + 1 && t.y === empty.y && !t.empty); break;
-    case "right": targetTile = tiles.find(t => t.x === empty.x - 1 && t.y === empty.y && !t.empty); break;
-  }
-  if (targetTile) {
-    slideTile(targetTile);
+  if(target){
+    slideTile(target);
     return true;
   }
   return false;
 }
 
 // -----------------------------
-// WIN CHECK
-// -----------------------------
-function isSolved() {
-  return tiles.every(t =>
-    t.empty ? (t.x === GRID-1 && t.y === GRID-1) : (t.x === t.correctX && t.y === t.correctY && t.rotation === 0)
-  );
-}
+// SWIPE FOR MOBILE
+let touchStart = null;
+board.addEventListener("touchstart", e=>{
+  const t = e.touches[0];
+  touchStart = {x:t.clientX, y:t.clientY};
+});
 
-function endGame() {
-  gameOver = true;
-  setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 50);
+board.addEventListener("touchend", e=>{
+  if(!touchStart || gameOver) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+
+  let moved = false;
+  if(Math.abs(dx) > Math.abs(dy)){
+    if(dx>30) moved = trySlide("right");
+    else if(dx<-30) moved = trySlide("left");
+  } else {
+    if(dy>30) moved = trySlide("down");
+    else if(dy<-30) moved = trySlide("up");
+  }
+  
+  if(moved){
+    moves++;
+    movesCounter.textContent = moves;
+    
+    // In twist mode, rotate board every 5 moves
+    if(gameMode === "twist" && moves % TWIST_ROTATION_INTERVAL === 0){
+      boardRotation = (boardRotation + 90) % 360;
+    }
+    
+    drawBoard();
+    checkWin();
+  }
+  touchStart = null;
+});
+
+// -----------------------------
+// WIN CHECK
+function checkWin(){
+  if(gameOver) return; // Already won
+  
+  const won = tiles.every(t => t.row === t.correctRow && t.col === t.correctCol && t.rotation === 0);
+  
+  if(won){
+    gameOver = true;
+    setTimeout(() => alert(`🎉 Congrats! You solved it in ${moves} moves!`), 100);
+  }
 }
 
 // -----------------------------
 // INITIALIZE GAME
-// -----------------------------
-drawFlag();
-initTiles();
-scramble();
-drawBoard();
+function initGame(){
+  drawFlag();
+  initTiles();
+  scramble();
+
+  moves=0;
+  boardRotation = 0;
+  gameOver = false;
+  movesCounter.textContent = moves;
+  drawBoard();
+}
+
+// START GAME WITH MODE SELECTION
+function startGame(mode){
+  gameMode = mode;
+  
+  if(mode === "classic"){
+    gameTitle.textContent = "One Move - Classic";
+    gameModeDesc.textContent = "Click/tap to rotate. Slide tiles into the empty slot (bottom-right).";
+  } else if(mode === "twist"){
+    gameTitle.textContent = "One Move - Twist";
+    gameModeDesc.textContent = "Click/tap to rotate. Slide tiles into the empty slot. Board rotates every 5 moves!";
+  }
+  
+  menuScreen.style.display = "none";
+  gameScreen.style.display = "block";
+  
+  initGame();
+}
+
+// Initially show menu
+menuScreen.style.display = "block";
+gameScreen.style.display = "none";
+
